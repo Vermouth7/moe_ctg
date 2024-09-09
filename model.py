@@ -2,25 +2,21 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
-'''
-Todo: 
-1. each block attached to a gate network
-2. assign correct feature vector (with sample id)
-3. with a new training process
-'''
+device = torch.device("cuda")
 
 class WrappedBlock(torch.nn.Module):
-    def __init__(self, block):
+    def __init__(self, block,layer_idx):
         super().__init__()
         self.block = block
         self.output = None
         self.vector_pool = None
-        self.token_pos = None
+        self.token_pos = -1
         self.sample_ids=None
         # self.gate = nn.Linear(hidden_dim, num_vector + 1).to(torch.bfloat16)
-        self.gate = nn.Linear(4096, 6 + 1).to(torch.bfloat16)
-        
+        self.gate = nn.Linear(4096, 6 + 1).to(device).to(torch.bfloat16)
+        self.layer_idx=layer_idx
         
     
     def forward(self, *args, **kwargs):
@@ -33,7 +29,36 @@ class WrappedBlock(torch.nn.Module):
             modified = output
         
         ## handle the activation
+        batch_size, seq_len, hidden_dim = modified.size()
         
+        token_activation = modified[:, self.token_pos, :].to(modified.device)  # (batch_size, hidden_dim)
+        gate_scores = self.gate(token_activation)
+        gate_probs = F.softmax(gate_scores, dim=-1)
+
+        for b in range(batch_size):
+            vectors_from_pool = self.vector_pool[b][:, self.layer_idx]  # Original vector pool
+
+            # Handle vector_pool size
+            if vectors_from_pool.size(0) < 6:
+                # If vector_pool size is less than 6, pad with zeros
+                pad_size = 6 - vectors_from_pool.size(0)
+                padding = torch.zeros((pad_size, hidden_dim), device=vectors_from_pool.device, dtype=vectors_from_pool.dtype)
+                vectors_from_pool = torch.cat((vectors_from_pool, padding), dim=0)
+            elif vectors_from_pool.size(0) > 6:
+                # If vector_pool size is greater than 6, randomly select 6 vectors
+                perm = torch.randperm(vectors_from_pool.size(0))[:6]
+                vectors_from_pool = vectors_from_pool[perm]
+
+            # Combine vectors: original token_activation goes to the last position
+            combined_vector = torch.cat((vectors_from_pool, token_activation[b].unsqueeze(0)), dim=0)  # (7, hidden_dim)
+
+            # Apply soft gate to combine original and pool vectors
+            new_vector = torch.matmul(gate_probs[b], combined_vector)  # (hidden_dim,)
+
+            # Replace the activation with the new soft-gated vector
+            modified[b, self.token_pos, :] = new_vector  
+                    
+        self.token_pos-=1
         if isinstance(output, tuple):
             output = (modified,) + output[1:] 
         else:
@@ -41,15 +66,18 @@ class WrappedBlock(torch.nn.Module):
         
         return output
 
-    def set_pool(self, activations, token_pos=None, masks=None, normalize=False, operator='replace'):
-        pass
+    def set_pool(self,pool):
+        self.vector_pool=pool
         
     def reset(self):
         self.output = None
         self.vector_pool = None
-        self.token_pos = None
+        self.token_pos = -1
         self.sample_ids=None
+        self.layer_idx=None
         
+    def reset_token_pos(self):
+        self.token_pos=-1
 
 
 
@@ -70,6 +98,8 @@ class MoeModel(torch.nn.Module):
         return self.model(*args, **kwargs)
         
     def generate(self, **kwargs):
+        for layer_id, layer in enumerate(self.model.model.layers):
+            layer.reset_token_pos()
         return self.model.generate(**kwargs)
         
     def get_logits(self, tokens):
@@ -99,7 +129,7 @@ class MoeModel(torch.nn.Module):
     def wrap_decoder_block(self, layer_id):
         block = self.model.model.layers[layer_id]
         if not self.is_wrapped(block):
-            self.model.model.layers[layer_id] = WrappedBlock(block)
+            self.model.model.layers[layer_id] = WrappedBlock(block,layer_id+1)
 
     def wrap_all_decoder(self):
         for layer_id, layer in enumerate(self.model.model.layers):
@@ -149,3 +179,17 @@ class MoeModel(torch.nn.Module):
                     setattr(self.model.model.layers[l],
                             block_name,
                             getattr(self.model.model.layers[l], block_name).block)
+
+    def set_vector_pool(self,vector):
+        for layer_id, layer in enumerate(self.model.model.layers):
+            layer.set_pool(vector)
+            layer.reset_token_pos()
+    
+    def freeze_model_params(self):
+        for name, param in self.model.named_parameters():
+            param.requires_grad = False  
+
+        for layer in self.model.model.layers:
+            if isinstance(layer, WrappedBlock):
+                for name, param in layer.gate.named_parameters():
+                    param.requires_grad = True  

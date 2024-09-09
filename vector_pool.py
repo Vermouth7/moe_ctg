@@ -1,7 +1,7 @@
 import argparse
 import os
 
-os.environ['CUDA_VISIBLE_DEVICES']='3'
+os.environ['CUDA_VISIBLE_DEVICES']='7'
 
 import random
 
@@ -38,23 +38,34 @@ constraints=None
 feature=[]
 with open('./dataset/multi_constraints.json','r') as f:
     constraints=json.load(f)
-for c in constraints:
-    for i in c.keys():
+min_con=1000
+for c in range(0,len(constraints)):
+    temp={}
+    temp[c]=[]
+    for i in constraints[c].keys():
         if 'Constraints' in i:
-            for j in c[i]:
+            for j in constraints[c][i]:
                 for k,v in j.items():
-                    feature.append(v)
+                    temp[c].append(v)
+    feature.append(temp)
+# print(feature)
 # print(len(feature))
-feature=random.sample(feature,5000)
-for sample in tqdm(feature):
+pool=[]
+for sample in tqdm(feature[:100]):
     # print(sample)
-    input_text = prompt_template(tokenizer,sample)
-    hidden_states = extract_hidden_states(input_text)
+    temp={}
+    for k,v in sample.items():
+        temp[k]=[]
+        for i in v:
+            input_text = prompt_template(tokenizer,i)
+            hidden_states = extract_hidden_states(input_text)
+            hidden_states=torch.stack(hidden_states)[:,0,-1].to('cpu')
+            temp[k].append(hidden_states)
     
-    hidden_states=torch.stack(hidden_states)[:,0,-1].to('cpu')
-    task_vectors.append(hidden_states)
-task_vectors=torch.stack(task_vectors)
-print(task_vectors.shape)
+    pool.append(temp)
+
+for i in range(0,len(pool)):
+    print(pool[i])
 save_path = "task_vectors.pt"
-torch.save(task_vectors, save_path)
+torch.save(pool, save_path)
 print(f"Task vectors saved to {save_path}")

@@ -5,8 +5,9 @@ with open(data_path, 'r') as f:
     data = json.load(f)
 new_data={}
 train=[]
-for i in data:
+for idx,i in enumerate(data):
     temp={}
+    temp['ID']=idx
     temp['prompt']=i['New instruction']
     temp['completion']=i['Output']
     train.append(temp)
