@@ -14,7 +14,6 @@ class WrappedBlock(torch.nn.Module):
         self.vector_pool = None
         self.token_pos = -1
         self.sample_ids=None
-        # self.gate = nn.Linear(hidden_dim, num_vector + 1).to(torch.bfloat16)
         self.gate = nn.Linear(4096, 6 + 1).to(device).to(torch.bfloat16)
         self.layer_idx=layer_idx
         
@@ -27,18 +26,16 @@ class WrappedBlock(torch.nn.Module):
         else:
             self.output = output
             modified = output
-        
         ## handle the activation
         batch_size, seq_len, hidden_dim = modified.size()
         
         token_activation = modified[:, self.token_pos, :].to(modified.device)  # (batch_size, hidden_dim)
         gate_scores = self.gate(token_activation)
         gate_probs = F.softmax(gate_scores, dim=-1)
-
+        modified = modified.clone()  
         for b in range(batch_size):
-            vectors_from_pool = self.vector_pool[b][:, self.layer_idx]  # Original vector pool
-
-            # Handle vector_pool size
+            vectors_from_pool = self.vector_pool[b][:, self.layer_idx].to(modified.device)
+            
             if vectors_from_pool.size(0) < 6:
                 # If vector_pool size is less than 6, pad with zeros
                 pad_size = 6 - vectors_from_pool.size(0)
@@ -49,13 +46,10 @@ class WrappedBlock(torch.nn.Module):
                 perm = torch.randperm(vectors_from_pool.size(0))[:6]
                 vectors_from_pool = vectors_from_pool[perm]
 
-            # Combine vectors: original token_activation goes to the last position
             combined_vector = torch.cat((vectors_from_pool, token_activation[b].unsqueeze(0)), dim=0)  # (7, hidden_dim)
 
-            # Apply soft gate to combine original and pool vectors
-            new_vector = torch.matmul(gate_probs[b], combined_vector)  # (hidden_dim,)
+            new_vector = torch.matmul(gate_probs[b], combined_vector)  
 
-            # Replace the activation with the new soft-gated vector
             modified[b, self.token_pos, :] = new_vector  
                     
         self.token_pos-=1
@@ -193,3 +187,15 @@ class MoeModel(torch.nn.Module):
             if isinstance(layer, WrappedBlock):
                 for name, param in layer.gate.named_parameters():
                     param.requires_grad = True  
+    
+    def load_gate_weights(self, gate_weights_path):
+        checkpoint = torch.load(gate_weights_path, map_location=device)
+        
+        for layer_id, layer in enumerate(self.model.model.layers):
+            if isinstance(layer, WrappedBlock):
+                gate_name = f"model.model.layers.{layer_id}.gate"
+                if gate_name in checkpoint:
+                    layer.gate.load_state_dict(checkpoint[gate_name])
+                    print(f"Loaded gate weights for layer {layer_id}")
+                else:
+                    print(f"No gate weights found for layer {layer_id}")
