@@ -70,41 +70,44 @@ def main(args):
         model.freeze_model_params()
         # for name, param in model.named_parameters():
         #     print(f"Parameter: {name}, requires_grad: {param.requires_grad},grad_fn: {param.grad_fn}")
-        optimizer = AdamW(params=[p for name, p in model.named_parameters() if 'gate' in name], lr=args.lr,weight_decay=1e-5)
-        total_steps = len(train_loader) * args.epochs  
+        # for name, p in model.named_parameters():
+        #     if 'MOE_gate' in name:
+        #         print(name,p)
+        optimizer = AdamW(params=[p for name, p in model.named_parameters() if 'MOE_gate' in name], lr=args.lr,weight_decay=1e-5)
+        total_steps = len(train_loader) * args.epochs
         scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=total_steps)
         vector_pool=torch.load('./pool/train_vectors.pt')
+        # print(model)
         model.train()
-        with torch.autograd.detect_anomaly():
-            for epoch in range(args.epochs):
-                epoch_loss = 0
-                progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{args.epochs}", total=len(train_loader))  
+        for epoch in range(args.epochs):
+            epoch_loss = 0
+            progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{args.epochs}", total=len(train_loader))  
 
-                for step, (batch, ids) in enumerate(progress_bar):
-                    input_ids = batch['input_ids'].to(device)
-                    attention_mask = batch['attention_mask'].to(device)
-                    labels = batch['labels'].to(device)
-                    pool={}
-                    ids=ids.tolist()
-                    for i in range(0,len(ids)):
-                        temp=torch.stack(vector_pool[ids[i]][ids[i]])
-                        pool[i]=temp
-                    model.set_vector_pool(pool)
-                    
-                    outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-                    loss = outputs.loss
-                    loss.backward()
-                    
-                    epoch_loss += loss.item()
+            for step, (batch, ids) in enumerate(progress_bar):
+                input_ids = batch['input_ids'].to(device)
+                attention_mask = batch['attention_mask'].to(device)
+                labels = batch['labels'].to(device)
+                pool={}
+                ids=ids.tolist()
+                for i in range(0,len(ids)):
+                    temp=torch.stack(vector_pool[ids[i]][ids[i]])
+                    pool[i]=temp
+                model.set_vector_pool(pool)
+                
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+                loss = outputs.loss
+                loss.backward()
+                
+                epoch_loss += loss.item()
 
-                    optimizer.step()
-                    scheduler.step()
-                    optimizer.zero_grad()
-                    if step % 10 == 0:
-                        wandb.log({"loss": loss.item(), "step": step + epoch * len(train_loader)})
-                    progress_bar.set_postfix(loss=loss.item())
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+                if step % 10 == 0:
+                    wandb.log({"loss": loss.item(), "step": step + epoch * len(train_loader)})
+                progress_bar.set_postfix(loss=loss.item())
 
-                print(f"Epoch {epoch + 1} Loss: {epoch_loss / len(train_loader)}")
+            print(f"Epoch {epoch + 1} Loss: {epoch_loss / len(train_loader)}")
         gate_params = {name: param for name, param in model.named_parameters() if 'gate' in name}
         torch.save(gate_params, './model_ckpt/gate_params.pth')
         wandb.finish()

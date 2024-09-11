@@ -6,6 +6,22 @@ import torch.nn.functional as F
 
 device = torch.device("cuda")
 
+class MoeMLP(nn.Module):
+    def __init__(self, input_dim=4096, output_dim=7, hidden_dims=512):
+        super(MoeMLP, self).__init__()
+        layers = []
+        
+        layers.append(nn.LayerNorm(input_dim))
+        layers.append(nn.Linear(input_dim, hidden_dims))
+        layers.append(nn.ReLU())
+        layers.append(nn.Dropout(p=0.5))  # Dropout
+        layers.append(nn.Linear(hidden_dims, output_dim))
+        
+        self.model = nn.Sequential(*layers)
+        
+    def forward(self, x):
+        return self.model(x)
+
 class WrappedBlock(torch.nn.Module):
     def __init__(self, block,layer_idx):
         super().__init__()
@@ -14,15 +30,17 @@ class WrappedBlock(torch.nn.Module):
         self.vector_pool = None
         self.token_pos = -1
         self.sample_ids=None
-        self.gate = nn.Linear(4096, 6 + 1).to(device).to(torch.bfloat16)
+        # self.MOE_gate = nn.Linear(4096, 6 + 1).to(device).to(torch.bfloat16)
+        self.MOE_gate=MoeMLP().to(device).to(torch.bfloat16)
         self.layer_idx=layer_idx
-        
         
     
     def forward(self, *args, **kwargs):
+        # print(self.MOE_gate.weight.data)
+        # print(self.MOE_gate.bias.data)
         # if self.layer_idx==18:
-        #     print(self.gate.weight.data)
-        #     print(self.gate.bias.data)
+        #     for name, p in self.MOE_gate.named_parameters():
+        #         print(name,p)
         output = self.block(*args, **kwargs)
         if isinstance(output, tuple):
             self.output = output[0]
@@ -34,7 +52,9 @@ class WrappedBlock(torch.nn.Module):
         batch_size, seq_len, hidden_dim = modified.size()
         
         token_activation = modified[:, self.token_pos, :].to(modified.device)  # (batch_size, hidden_dim)
-        gate_scores = self.gate(token_activation)
+        gate_scores = self.MOE_gate(token_activation)
+        # gate_scores = gate_scores / torch.norm(gate_scores, dim=-1, keepdim=True)
+        # print("gate scores:",gate_scores)
         gate_probs = F.softmax(gate_scores, dim=-1)
         modified = modified.clone()  
         for b in range(batch_size):
@@ -53,7 +73,8 @@ class WrappedBlock(torch.nn.Module):
             new_vector = torch.matmul(gate_probs[b], combined_vector)  
 
             modified[b, self.token_pos, :] = new_vector  
-                    
+        
+
         self.token_pos-=1
         if isinstance(output, tuple):
             output = (modified,) + output[1:] 
@@ -90,10 +111,11 @@ BLOCK_NAMES = [
 
 def print_block_gradients(layer_idx):
     def hook(module, grad_input, grad_output):
-        # if layer_idx==18:
-        #     print(grad_input)
-        print('layer id',layer_idx)
-        print(grad_output)
+        if layer_idx==18:
+            print(grad_output)
+            print(grad_input)
+        # print('layer id',layer_idx)
+        # print(grad_output)
     return hook
 
 class MoeModel(torch.nn.Module):
@@ -144,6 +166,7 @@ class MoeModel(torch.nn.Module):
         for layer_id, layer in enumerate(self.model.model.layers):
             # for block_name in BLOCK_NAMES:
             #     self.wrap(layer_id, block_name)
+            # if layer_id==18:
             self.wrap_decoder_block(layer_id)
             
     def wrap_block(self, layer_ids, block_name):
@@ -191,8 +214,9 @@ class MoeModel(torch.nn.Module):
 
     def set_vector_pool(self,vector):
         for layer_id, layer in enumerate(self.model.model.layers):
-            layer.set_pool(vector)
-            layer.reset_token_pos()
+            if self.is_wrapped(layer):
+                layer.set_pool(vector)
+                layer.reset_token_pos()
     
     def freeze_model_params(self):
         for name, param in self.model.named_parameters():
@@ -200,7 +224,7 @@ class MoeModel(torch.nn.Module):
 
         for layer in self.model.model.layers:
             if isinstance(layer, WrappedBlock):
-                for name, param in layer.gate.named_parameters():
+                for name, param in layer.MOE_gate.named_parameters():
                     param.requires_grad = True  
     
     def load_gate_weights(self, gate_weights_path):
@@ -210,7 +234,7 @@ class MoeModel(torch.nn.Module):
             if isinstance(layer, WrappedBlock):
                 gate_name = f"model.model.layers.{layer_id}.gate"
                 if gate_name in checkpoint:
-                    layer.gate.load_state_dict(checkpoint[gate_name])
+                    layer.MOE_gate.load_state_dict(checkpoint[gate_name])
                     print(f"Loaded gate weights for layer {layer_id}")
                 else:
                     print(f"No gate weights found for layer {layer_id}")
@@ -218,4 +242,4 @@ class MoeModel(torch.nn.Module):
     def register_hooks_for_gate(self):
         for layer in self.model.model.layers:
             if isinstance(layer, WrappedBlock):
-                layer.gate.register_full_backward_hook(print_block_gradients(layer.layer_idx))
+                layer.MOE_gate.register_full_backward_hook(print_block_gradients(layer.layer_idx))
