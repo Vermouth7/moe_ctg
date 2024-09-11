@@ -1,14 +1,14 @@
 import argparse
 import os
 
-os.environ['CUDA_VISIBLE_DEVICES']='3'
+os.environ['CUDA_VISIBLE_DEVICES']='7'
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import wandb
 from datasets import load_dataset
 from model import MoeModel
-from peft import LoraConfig
+from peft import LoraConfig, TaskType
 # import wandb
 from torch.utils.data import DataLoader, Dataset
 from transformers import (AdamW, AutoModelForCausalLM, AutoTokenizer,
@@ -66,7 +66,7 @@ def main(args):
         total_steps = len(train_loader) * args.epochs  
         scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=total_steps)
         vector_pool=torch.load('./pool/train_vectors.pt')
-        model.freeze_model_params()
+        # model.freeze_model_params()
         model.train()
         
         for epoch in range(args.epochs):
@@ -85,9 +85,6 @@ def main(args):
                 model.set_vector_pool(pool)
                 
                 outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-                # for name, param in model.named_parameters():
-                #     if param.requires_grad and param.grad is None:
-                #         print(f"No gradient computed for {name}")
                 loss = outputs.loss
                 loss.backward()
 
@@ -108,7 +105,7 @@ def main(args):
         tokenizer = AutoTokenizer.from_pretrained(args.model_path,padding_side='left')
         tokenizer.pad_token_id = tokenizer.eos_token_id if tokenizer.pad_token_id is None else tokenizer.pad_token_id
         model = MoeModel(model,tokenizer)
-        model.generation_config.pad_token_id = tokenizer.pad_token_id
+        model.eval()
         for constraint in constraint_types:
             vector_pool=torch.load('./pool/{}_constraint_split.pt'.format(constraint))
             
@@ -127,7 +124,7 @@ def main(args):
                     generation_output=model.generate(**inputs,max_new_tokens=args.max_length,use_cache=False)
                     res=tokenizer.decode(generation_output[0], skip_special_tokens=True)
                     run_results.append({'prompt_new':item['prompt_new'],'result': res})
-        
+                    print(res)
             with open(os.path.join(args.output_folder, f"{os.path.basename(args.model_path)}_{constraint}_constraint.jsonl"), 'w', encoding='utf-8') as output_file:
                 for d in run_results:
                     output_file.write(json.dumps(d) + "\n")
@@ -142,14 +139,17 @@ if __name__ == "__main__":
     parser.add_argument('--vector_pool_path', type=str, default='./task_vectors.pt')
     parser.add_argument('--gate_model_path', type=str, default='./model_ckpt/moe_model_epoch_1.pt')
     # parser.add_argument('--model_path', type=str, default='/data1/chh/models/model_sft/llama3-8b/merge/qwen/sft3')
-    parser.add_argument('--output_folder', type=str, default='./results/test')
+    parser.add_argument('--output_folder', type=str, default='./results/test2')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--max_length', type=int, default=1024)
-    parser.add_argument('--stage', type=str, default='train')
+    parser.add_argument('--stage', type=str, default='eval')
     
     parser.add_argument('--lr', type=float, default=0.01)
     parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--batch_size', type=int, default=2)
+    
+    parser.add_argument('--lora_r', type=int, default=16)
+    parser.add_argument('--lora_alpha', type=int, default=8)
     
     args = parser.parse_args()
     set_seed(args)

@@ -15,6 +15,7 @@ class WrappedBlock(torch.nn.Module):
         self.token_pos = -1
         self.sample_ids=None
         self.gate = nn.Linear(4096, 6 + 1).to(device).to(torch.bfloat16)
+        
         self.layer_idx=layer_idx
         
     
@@ -26,7 +27,7 @@ class WrappedBlock(torch.nn.Module):
         else:
             self.output = output
             modified = output
-        ## handle the activation
+        # handle the activation
         batch_size, seq_len, hidden_dim = modified.size()
         
         token_activation = modified[:, self.token_pos, :].to(modified.device)  # (batch_size, hidden_dim)
@@ -37,12 +38,10 @@ class WrappedBlock(torch.nn.Module):
             vectors_from_pool = self.vector_pool[b][:, self.layer_idx].to(modified.device)
             
             if vectors_from_pool.size(0) < 6:
-                # If vector_pool size is less than 6, pad with zeros
                 pad_size = 6 - vectors_from_pool.size(0)
                 padding = torch.zeros((pad_size, hidden_dim), device=vectors_from_pool.device, dtype=vectors_from_pool.dtype)
                 vectors_from_pool = torch.cat((vectors_from_pool, padding), dim=0)
             elif vectors_from_pool.size(0) > 6:
-                # If vector_pool size is greater than 6, randomly select 6 vectors
                 perm = torch.randperm(vectors_from_pool.size(0))[:6]
                 vectors_from_pool = vectors_from_pool[perm]
 
@@ -61,6 +60,10 @@ class WrappedBlock(torch.nn.Module):
         return output
 
     def set_pool(self,pool):
+        if not isinstance(pool,dict):
+            if isinstance(pool,torch.Tensor):
+                if pool.dim()<4:
+                    pool=pool.unsqueeze(0)
         self.vector_pool=pool
         
     def reset(self):
@@ -88,6 +91,7 @@ class MoeModel(torch.nn.Module):
         self.model = model
         self.tokenizer = tokenizer
         self.wrap_all_decoder()
+        self.model.generation_config.pad_token_id = tokenizer.pad_token_id
     def forward(self, *args, **kwargs):
         return self.model(*args, **kwargs)
         
