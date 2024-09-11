@@ -15,11 +15,14 @@ class WrappedBlock(torch.nn.Module):
         self.token_pos = -1
         self.sample_ids=None
         self.gate = nn.Linear(4096, 6 + 1).to(device).to(torch.bfloat16)
-        
         self.layer_idx=layer_idx
+        
         
     
     def forward(self, *args, **kwargs):
+        # if self.layer_idx==18:
+        #     print(self.gate.weight.data)
+        #     print(self.gate.bias.data)
         output = self.block(*args, **kwargs)
         if isinstance(output, tuple):
             self.output = output[0]
@@ -84,7 +87,15 @@ BLOCK_NAMES = [
     "input_layernorm",
     "post_attention_layernorm"
     ]
-    
+
+def print_block_gradients(layer_idx):
+    def hook(module, grad_input, grad_output):
+        # if layer_idx==18:
+        #     print(grad_input)
+        print('layer id',layer_idx)
+        print(grad_output)
+    return hook
+
 class MoeModel(torch.nn.Module):
     def __init__(self, model, tokenizer):
         super().__init__()
@@ -203,3 +214,8 @@ class MoeModel(torch.nn.Module):
                     print(f"Loaded gate weights for layer {layer_id}")
                 else:
                     print(f"No gate weights found for layer {layer_id}")
+                 
+    def register_hooks_for_gate(self):
+        for layer in self.model.model.layers:
+            if isinstance(layer, WrappedBlock):
+                layer.gate.register_full_backward_hook(print_block_gradients(layer.layer_idx))

@@ -5,7 +5,6 @@ os.environ['CUDA_VISIBLE_DEVICES']='7'
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import wandb
 from datasets import load_dataset
 from model import MoeModel
 from peft import LoraConfig, TaskType
@@ -16,9 +15,12 @@ from transformers import (AdamW, AutoModelForCausalLM, AutoTokenizer,
 from trl import SFTConfig, SFTTrainer
 from utils import *
 
-device = torch.device("cuda")
-torch.autograd.set_detect_anomaly(True)
+import wandb
 
+device = torch.device("cuda")
+
+
+    
 class CustomDataset(Dataset):
     def __init__(self, file_path, tokenizer, max_length=512):
         self.data = self.load_data(file_path)
@@ -55,6 +57,7 @@ def main(args):
     
     
     if args.stage=='train':
+        
         wandb.init(project='moe_ctg',config={"learning_rate": args.lr,"epochs": args.epochs,"batch_size": args.batch_size})
         tokenizer = AutoTokenizer.from_pretrained(args.model_path,padding_side='right')
         tokenizer.pad_token_id = tokenizer.eos_token_id if tokenizer.pad_token_id is None else tokenizer.pad_token_id
@@ -62,42 +65,46 @@ def main(args):
         train_dataset = CustomDataset(args.dataset_path, tokenizer)
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
         
-        optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
-        total_steps = len(train_loader) * args.epochs  
-        scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=total_steps)
-        vector_pool=torch.load('./pool/train_vectors.pt')
-        # model.freeze_model_params()
-        model.train()
+        model.register_hooks_for_gate()
         
-        for epoch in range(args.epochs):
-            epoch_loss = 0
-            progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{args.epochs}", total=len(train_loader))  
+        model.freeze_model_params()
+        # for name, param in model.named_parameters():
+        #     print(f"Parameter: {name}, requires_grad: {param.requires_grad},grad_fn: {param.grad_fn}")
+        optimizer = AdamW(params=[p for name, p in model.named_parameters() if 'gate' in name], lr=args.lr,weight_decay=1e-5)
+        total_steps = len(train_loader) * args.epochs  
+        scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=total_steps)
+        vector_pool=torch.load('./pool/train_vectors.pt')
+        model.train()
+        with torch.autograd.detect_anomaly():
+            for epoch in range(args.epochs):
+                epoch_loss = 0
+                progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{args.epochs}", total=len(train_loader))  
 
-            for step, (batch, ids) in enumerate(progress_bar):
-                input_ids = batch['input_ids'].to(device)
-                attention_mask = batch['attention_mask'].to(device)
-                labels = batch['labels'].to(device)
-                pool={}
-                ids=ids.tolist()
-                for i in range(0,len(ids)):
-                    temp=torch.stack(vector_pool[ids[i]][ids[i]])
-                    pool[i]=temp
-                model.set_vector_pool(pool)
-                
-                outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-                loss = outputs.loss
-                loss.backward()
+                for step, (batch, ids) in enumerate(progress_bar):
+                    input_ids = batch['input_ids'].to(device)
+                    attention_mask = batch['attention_mask'].to(device)
+                    labels = batch['labels'].to(device)
+                    pool={}
+                    ids=ids.tolist()
+                    for i in range(0,len(ids)):
+                        temp=torch.stack(vector_pool[ids[i]][ids[i]])
+                        pool[i]=temp
+                    model.set_vector_pool(pool)
+                    
+                    outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+                    loss = outputs.loss
+                    loss.backward()
+                    
+                    epoch_loss += loss.item()
 
-                epoch_loss += loss.item()
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer.zero_grad()
+                    if step % 10 == 0:
+                        wandb.log({"loss": loss.item(), "step": step + epoch * len(train_loader)})
+                    progress_bar.set_postfix(loss=loss.item())
 
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad()
-                if step % 10 == 0:
-                    wandb.log({"loss": loss.item(), "step": step + epoch * len(train_loader)})
-                progress_bar.set_postfix(loss=loss.item())
-
-            print(f"Epoch {epoch + 1} Loss: {epoch_loss / len(train_loader)}")
+                print(f"Epoch {epoch + 1} Loss: {epoch_loss / len(train_loader)}")
         gate_params = {name: param for name, param in model.named_parameters() if 'gate' in name}
         torch.save(gate_params, './model_ckpt/gate_params.pth')
         wandb.finish()
@@ -142,9 +149,9 @@ if __name__ == "__main__":
     parser.add_argument('--output_folder', type=str, default='./results/test2')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--max_length', type=int, default=1024)
-    parser.add_argument('--stage', type=str, default='eval')
+    parser.add_argument('--stage', type=str, default='train')
     
-    parser.add_argument('--lr', type=float, default=0.01)
+    parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--batch_size', type=int, default=2)
     
