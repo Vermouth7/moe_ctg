@@ -1,7 +1,7 @@
 import argparse
 import os
 
-os.environ['CUDA_VISIBLE_DEVICES']='7'
+os.environ['CUDA_VISIBLE_DEVICES']='0'
 
 import random
 
@@ -10,17 +10,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 from datasets import load_dataset
 from tqdm import tqdm
-from transformers import AutoTokenizer, LlamaForCausalLM
+from transformers import AutoTokenizer, LlamaForCausalLM, Qwen2ForCausalLM
 from utils import *
 
 random.seed(42)
 
-model_name = "/data1/chh/models/meta-llama/Meta-Llama-3-8B-Instruct"
-model = LlamaForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16).to("cuda")
+# model_name = "/data1/chh/models/meta-llama/Meta-Llama-3-8B-Instruct"
+model_name='/data1/chh/models/Qwen/Qwen2-1.5B-Instruct'
+model = Qwen2ForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16).to("cuda")
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-num_vectors = 5000
-task_vectors = []
 
 def extract_hidden_states(input_text):
     # Tokenize input
@@ -36,9 +35,8 @@ def extract_hidden_states(input_text):
 
 constraints=None
 feature=[]
-with open('./dataset/multi_constraints.json','r') as f:
+with open('./dataset/multi_constraints_5000.json','r') as f:
     constraints=json.load(f)
-min_con=1000
 for c in range(0,len(constraints)):
     temp={}
     temp[c]=[]
@@ -51,7 +49,7 @@ for c in range(0,len(constraints)):
 # print(feature)
 # print(len(feature))
 pool=[]
-for sample in tqdm(feature[:100]):
+for sample in tqdm(feature):
     # print(sample)
     temp={}
     for k,v in sample.items():
@@ -64,8 +62,7 @@ for sample in tqdm(feature[:100]):
     
     pool.append(temp)
 
-for i in range(0,len(pool)):
-    print(pool[i])
-save_path = "task_vectors.pt"
+
+save_path = "./pool/train_vectors_5000_qwen.pt"
 torch.save(pool, save_path)
 print(f"Task vectors saved to {save_path}")

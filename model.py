@@ -1,4 +1,6 @@
 # wrapping classes
+from typing import List, Optional, Tuple, Union
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -30,56 +32,56 @@ class WrappedBlock(torch.nn.Module):
         self.vector_pool = None
         self.token_pos = -1
         self.sample_ids=None
-        # self.MOE_gate = nn.Linear(4096, 6 + 1).to(device).to(torch.bfloat16)
-        self.MOE_gate=MoeMLP().to(device).to(torch.bfloat16)
+        self.MOE_gate = nn.Linear(4096, 6 + 1).to(device).to(torch.bfloat16)
+        # self.MOE_gate=MoeMLP().to(device).to(torch.bfloat16)
         self.layer_idx=layer_idx
-        
     
     def forward(self, *args, **kwargs):
-        # print(self.MOE_gate.weight.data)
-        # print(self.MOE_gate.bias.data)
         # if self.layer_idx==18:
-        #     for name, p in self.MOE_gate.named_parameters():
-        #         print(name,p)
+        #     print(self.MOE_gate.weight.data)
+        #     print(self.MOE_gate.bias.data)
+        if self.layer_idx==18:
+            for name, p in self.block.named_parameters():
+                print(name,p)
         output = self.block(*args, **kwargs)
-        if isinstance(output, tuple):
-            self.output = output[0]
-            modified = output[0]
-        else:
-            self.output = output
-            modified = output
-        # handle the activation
-        batch_size, seq_len, hidden_dim = modified.size()
+        # if isinstance(output, tuple):
+        #     self.output = output[0]
+        #     modified = output[0]
+        # else:
+        #     self.output = output
+        #     modified = output
+        # # handle the activation
+        # batch_size, seq_len, hidden_dim = modified.size()
         
-        token_activation = modified[:, self.token_pos, :].to(modified.device)  # (batch_size, hidden_dim)
-        gate_scores = self.MOE_gate(token_activation)
-        # gate_scores = gate_scores / torch.norm(gate_scores, dim=-1, keepdim=True)
-        # print("gate scores:",gate_scores)
-        gate_probs = F.softmax(gate_scores, dim=-1)
-        modified = modified.clone()  
-        for b in range(batch_size):
-            vectors_from_pool = self.vector_pool[b][:, self.layer_idx].to(modified.device)
+        # token_activation = modified[:, self.token_pos, :].to(modified.device)  # (batch_size, hidden_dim)
+        # gate_scores = self.MOE_gate(token_activation)
+        # # gate_scores = gate_scores / torch.norm(gate_scores, dim=-1, keepdim=True)
+        # # print("gate scores:",gate_scores)
+        # gate_probs = F.softmax(gate_scores, dim=-1)
+        # modified = modified.clone()  
+        # for b in range(batch_size):
+        #     vectors_from_pool = self.vector_pool[b][:, self.layer_idx].to(modified.device)
             
-            if vectors_from_pool.size(0) < 6:
-                pad_size = 6 - vectors_from_pool.size(0)
-                padding = torch.zeros((pad_size, hidden_dim), device=vectors_from_pool.device, dtype=vectors_from_pool.dtype)
-                vectors_from_pool = torch.cat((vectors_from_pool, padding), dim=0)
-            elif vectors_from_pool.size(0) > 6:
-                perm = torch.randperm(vectors_from_pool.size(0))[:6]
-                vectors_from_pool = vectors_from_pool[perm]
+        #     if vectors_from_pool.size(0) < 6:
+        #         pad_size = 6 - vectors_from_pool.size(0)
+        #         padding = torch.zeros((pad_size, hidden_dim), device=vectors_from_pool.device, dtype=vectors_from_pool.dtype)
+        #         vectors_from_pool = torch.cat((vectors_from_pool, padding), dim=0)
+        #     elif vectors_from_pool.size(0) > 6:
+        #         perm = torch.randperm(vectors_from_pool.size(0))[:6]
+        #         vectors_from_pool = vectors_from_pool[perm]
 
-            combined_vector = torch.cat((vectors_from_pool, token_activation[b].unsqueeze(0)), dim=0)  # (7, hidden_dim)
+        #     combined_vector = torch.cat((vectors_from_pool, token_activation[b].unsqueeze(0)), dim=0)  # (7, hidden_dim)
 
-            new_vector = torch.matmul(gate_probs[b], combined_vector)  
+        #     new_vector = torch.matmul(gate_probs[b], combined_vector)  
 
-            modified[b, self.token_pos, :] = new_vector  
+        #     modified[b, self.token_pos, :] = new_vector  
         
 
-        self.token_pos-=1
-        if isinstance(output, tuple):
-            output = (modified,) + output[1:] 
-        else:
-            output = modified
+        # # self.token_pos-=1
+        # if isinstance(output, tuple):
+        #     output = (modified,) + output[1:] 
+        # else:
+        #     output = modified
         
         return output
 
@@ -112,8 +114,8 @@ BLOCK_NAMES = [
 def print_block_gradients(layer_idx):
     def hook(module, grad_input, grad_output):
         if layer_idx==18:
-            print(grad_output)
             print(grad_input)
+            print(grad_output)
         # print('layer id',layer_idx)
         # print(grad_output)
     return hook
@@ -125,8 +127,14 @@ class MoeModel(torch.nn.Module):
         self.tokenizer = tokenizer
         self.wrap_all_decoder()
         self.model.generation_config.pad_token_id = tokenizer.pad_token_id
-    def forward(self, *args, **kwargs):
-        return self.model(*args, **kwargs)
+    
+    def forward(self, 
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        labels: Optional[torch.LongTensor] = None,**kwargs):
+        
+        return self.model(input_ids,attention_mask,labels, **kwargs)
+    
         
     def generate(self, **kwargs):
         for layer_id, layer in enumerate(self.model.model.layers):
@@ -224,8 +232,9 @@ class MoeModel(torch.nn.Module):
 
         for layer in self.model.model.layers:
             if isinstance(layer, WrappedBlock):
-                for name, param in layer.MOE_gate.named_parameters():
-                    param.requires_grad = True  
+                for name, param in layer.named_parameters():
+                    if 'MOE_gate' in name:
+                        param.requires_grad = True  
     
     def load_gate_weights(self, gate_weights_path):
         checkpoint = torch.load(gate_weights_path, map_location=device)
