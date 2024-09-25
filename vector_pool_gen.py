@@ -1,16 +1,17 @@
 import argparse
 import os
 
-os.environ['CUDA_VISIBLE_DEVICES']='4'
+os.environ['CUDA_VISIBLE_DEVICES']='3'
 
 import random
+import re
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datasets import load_dataset
 from tqdm import tqdm
-from transformers import AutoTokenizer, LlamaForCausalLM
+from transformers import AutoTokenizer, LlamaForCausalLM, Qwen2ForCausalLM
 from utils import *
 
 random.seed(42)
@@ -28,19 +29,18 @@ def extract_and_store(text):
     
     return result
 
-model_name = "/data1/chh/models/meta-llama/Meta-Llama-3-8B-Instruct"
+# model_name = "/data1/chh/models/Qwen/Qwen2-1.5B-Instruct"
+model_name='/data1/chh/models/meta-llama/Meta-Llama-3-8B-Instruct'
 model = LlamaForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16).to("cuda")
 tokenizer = AutoTokenizer.from_pretrained(model_name,padding_side='left')
 tokenizer.pad_token_id = tokenizer.eos_token_id if tokenizer.pad_token_id is None else tokenizer.pad_token_id
 constraint_types=['content', 'situation', 'style', 'format', 'example', 'mixed']
 for constraint in constraint_types:
-    feature=[]
-    pool=[]
+    pool={}
     
     
     with open("/home/chh/repos/my_ctg/instructions/followbench2/{}_constraint_split.jsonl".format(constraint), 'r', encoding='utf-8') as input_file:
         for idx,line in enumerate(tqdm(input_file, desc=f"Processing {constraint}", unit="line")):
-            feature={}
             temp=json.loads(line.strip())
             res=extract_and_store(temp['split_ins'])
             
@@ -62,12 +62,11 @@ for constraint in constraint_types:
             hidden_states_tensor = torch.stack(hidden_states_list) # num_condi 1 33 1 4096
             hidden_states_tensor = hidden_states_tensor.squeeze(3)
             hidden_states_tensor = hidden_states_tensor.squeeze(1).to('cpu')
-            feature[idx]=hidden_states_tensor
-            pool.append(feature)
+            pool[idx]=hidden_states_tensor
 
 
-    for i in range(0,len(pool)):
-        print(pool[i])
-    save_path = "./pool/{}_constraint_split.pt".format(constraint)
+    for k,v in pool.items():
+        print(v.shape)
+    save_path = "./pool/llama3/{}_constraint_split.pt".format(constraint)
     torch.save(pool, save_path)
     print(f"Task vectors saved to {save_path}")

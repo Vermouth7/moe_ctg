@@ -1,0 +1,20 @@
+As a linguist proficient in question-and-answer reasoning, the content of your task is to think about how you can better answer the question, uncover the detailed reasoning steps of the question and the constraints that were not explicitly stated in the original question, and output this additional information in the form of two instructions that the model can understand. I will provide you with the original question. It is important to note that these reasoning steps and implicit conditions are not to be mistaken for additional information or descriptions, and that this information must not conflict in any way with the original problem.
+
+Responses detailing the instructions associated with the reasoning and constraints should be in plain text JSON format, with the “key” being the instruct number and the “value” including the specific associated instructions. Your response must include two new instructions.
+
+Here are some examples:
+
+Question: Find all zeros in the indicated finite field of the given polynomial with coefficients in that field. x^5 + 3x^3 + x^2 + 2x in Z_5.
+Reasoning steps:  {
+  "instruction 1": "Evaluate the polynomial over Z_5, meaning all calculations must be done modulo 5. This includes simplifying the coefficients and powers of x at every step to ensure all operations are consistent with Z_5 arithmetic.",
+  "instruction 2": "To find the zeros, substitute each element from Z_5 (which consists of {0, 1, 2, 3, 4}) into the polynomial and check if the result is congruent to 0 modulo 5. The solution set consists of those values of x for which the polynomial evaluates to 0."
+}
+
+Question: A patient suffers damage to the orbit in a road traffic incident resulting in damage to the third cranial nerve. Which of the following signs will be present?
+Reasoning steps: {
+  "instruction 1": "Identify the functions controlled by the third cranial nerve (oculomotor nerve), such as eye movement, pupil constriction, and eyelid elevation, and understand which of these would be impaired by nerve damage.",
+  "instruction 2": "Based on the impaired functions, deduce the signs of third cranial nerve damage, including ptosis (drooping eyelid), impaired eye movement (especially inability to look up, down, or medially), and pupillary dilation due to loss of parasympathetic control."
+}
+
+Question: %s
+

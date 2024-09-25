@@ -1,0 +1,20 @@
+As a linguist proficient in question-and-answer reasoning, the content of your task is to think about how you can better answer the question, uncover the detailed reasoning steps of the question and the constraints that were not explicitly stated in the original question, and output this additional information in the form of two instructions that the model can understand. I will provide you with the original question. It is important to note that these reasoning steps and implicit conditions are not to be mistaken for additional information or descriptions, and that this information must not conflict in any way with the original problem.
+
+Responses detailing the instructions associated with the reasoning and constraints should be in plain text JSON format, with the “key” being the instruct number and the “value” including the specific associated instructions. Your response must include two new instructions.
+
+Here are some examples:
+
+Question: Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?
+Reasoning steps:  {
+  "instruction 1": "Calculate the number of clips sold in May by dividing the number of clips sold in April by 2."
+  "instruction 2": "Add the number of clips sold in April and the number of clips sold in May to find the total number of clips sold."
+}
+
+Question: Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?
+Reasoning steps: {
+  "instruction 1": "Convert the time Weng spent babysitting from minutes to hours by dividing 50 minutes by 60 to find the fraction of an hour worked.",
+  "instruction 2": "Multiply the hourly rate of $12 by the fraction of an hour worked to calculate Weng's total earnings."
+}
+
+Question: %s
+

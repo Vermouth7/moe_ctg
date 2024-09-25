@@ -34,39 +34,39 @@ def api_gpt(user_prompt: str, api_base:str,api_key: str):
             logger.error(e)
     logger.error(f'Failed after {MAX_API_RETRY} retries.')
     return 'error'
-with open('./dataset/con_template.txt','r',encoding='utf-8') as f:
+
+with open('./dataset/con_template_qa.txt','r',encoding='utf-8') as f:
     template=f.read()
 
-ds = load_dataset("/data1/chh/datasets/yahma/alpaca-cleaned",split='train')
-ds= random.sample(list(ds), 10000)
+ds = load_dataset("/data1/chh/datasets/openai/gsm8k",'main')
+ds=ds['test']
+
 new_data=[]
 num=0
+
 for i in tqdm(ds):
-    input_string=i['instruction']+i['input']
-    output_string=i['output']
+    input_string=i['question']
     # print(template%(input_string,output_string))
     
-    content=api_gpt(user_prompt=template%(input_string,output_string),api_base=API_BASE,api_key=API_KEY)
+    content=api_gpt(user_prompt=template%(input_string),api_base=API_BASE,api_key=API_KEY)
     if content:
         answer=None
         try:
             if content.startswith("```json"): # remove markdown, used for gpt-4 turbo
                 content = content[7:-3].strip()
                 answer = json.loads(content)
+            else:
+                answer = json.loads(content)
         except Exception as e:
                 print(f"json failed to parse: {e}")
                 print(f"content: {content}")
+        print(answer)
         if answer:
-            print(num)
-            num+=1
-            answer['Original instruction']=input_string
-            answer['Output']=output_string
+            answer['question']=input_string
+            answer['answer']=i['answer']
             new_data.append(answer)
     
-    if len(new_data) >= 5000:
-        break
-    
-with open("./dataset/multi_constraints_5000.json", "w", encoding="utf-8") as f:
+with open("./dataset/gsm8k_2steps.json", "w", encoding="utf-8") as f:
     json.dump(new_data, f, ensure_ascii=False, indent=4)
 
 print(f"save {len(new_data)} records")
