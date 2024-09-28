@@ -4,17 +4,29 @@ Responses detailing the instructions associated with the reasoning and constrain
 
 Here are some examples:
 
-Question: Find all zeros in the indicated finite field of the given polynomial with coefficients in that field. x^5 + 3x^3 + x^2 + 2x in Z_5.
+Question: What is the volume of the solid in xyz-space bounded by the surfaces y = x^2, y = 2 - x^2, z = 0, and z = y + 3?
 Reasoning steps:  {
-  "instruction 1": "Evaluate the polynomial over Z_5, meaning all calculations must be done modulo 5. This includes simplifying the coefficients and powers of x at every step to ensure all operations are consistent with Z_5 arithmetic.",
-  "instruction 2": "To find the zeros, substitute each element from Z_5 (which consists of {0, 1, 2, 3, 4}) into the polynomial and check if the result is congruent to 0 modulo 5. The solution set consists of those values of x for which the polynomial evaluates to 0."
+  "instruction 1": "Identify the region in the xy-plane defined by the curves y = x^2 and y = 2 - x^2. Determine the points of intersection to establish the bounds for integration in the xy-plane.",
+  "instruction 2": "Set up the volume integral by integrating the height of the solid, which is given by the difference z = y + 3 and z = 0, over the identified region in the xy-plane. This involves calculating the double integral of (y + 3) over the area bounded by the curves."
 }
 
-Question: A patient suffers damage to the orbit in a road traffic incident resulting in damage to the third cranial nerve. Which of the following signs will be present?
+Question: _______ can be a likened to their natural counterparts, comprising of a balanced network of interdependent organisms and their environments thus adding value to sustainability thinking due to the consideration of companies and industries as being bound together, and interdependent due to all kinds of resources and wastes.
 Reasoning steps: {
-  "instruction 1": "Identify the functions controlled by the third cranial nerve (oculomotor nerve), such as eye movement, pupil constriction, and eyelid elevation, and understand which of these would be impaired by nerve damage.",
-  "instruction 2": "Based on the impaired functions, deduce the signs of third cranial nerve damage, including ptosis (drooping eyelid), impaired eye movement (especially inability to look up, down, or medially), and pupillary dilation due to loss of parasympathetic control."
+  "instruction 1": "Identify the key components in the analogy that link the concept being discussed to natural ecosystems, focusing on interdependence and resource management.",
+  "instruction 2": "Consider how the principles of sustainability apply within this framework, evaluating how the relationships among companies and industries can reflect ecological balance and resource efficiency."
+}
+
+Question: What is one important step in public relations that sets it apart from the fields of marketing and advertising?
+Reasoning steps: {
+  "instruction 1": "Identify a key characteristic of public relations that distinguishes it from marketing and advertising, such as its focus on building relationships and managing the public's perception of an organization, rather than directly promoting products or services.",
+  "instruction 2": "Consider how the strategies and goals of public relations, such as crisis management and community engagement, differ from the more sales-oriented objectives typically found in marketing and advertising efforts."
+}
+
+Question: There are two billion children in the world today (2020), aged 0 to 15 years old. How many children will there be in the year 2100 according to the United Nations?
+Reasoning steps: {
+  "instruction 1": "Research demographic projections provided by the United Nations regarding future population growth, specifically focusing on the age group of children aged 0 to 15 years old, to ascertain any predicted changes between 2020 and 2100.",
+  "instruction 2": "Consider factors such as birth rates, mortality rates, and any relevant trends in child population growth that may impact the total number of children in 2100, ensuring to reference specific UN data or reports where applicable."
 }
 
 Question: %s
-
+Reasoning steps:
